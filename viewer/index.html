@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor de posesión</title>
+<style>
+:root {
+  --bg: #0f1115; --panel: #171a21; --panel-2: #1e222b; --line: #2a2f3a; --text: #e7e9ee;
+  --muted: #8b93a3; --accent: #f2c14e;
+  --home: #d23c4b; --away: #3d84e6; --dead: #6b7280; --none: #232733;
+  --pitch: #1d5c3a; --pitch-line: rgba(255,255,255,.75);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 16px; margin: 0 12px 0 0; font-weight: 650; letter-spacing: .2px; }
+label.ctl { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; }
+select, button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 9px; font: inherit; font-size: 13px; cursor: pointer; }
+button:hover, select:hover { border-color: #3b4252; }
+button.primary { background: var(--accent); color: #1a1a1a; border-color: var(--accent); font-weight: 650; }
+button.on { border-color: var(--accent); color: var(--accent); }
+main { padding: 14px 16px 24px; display: grid; gap: 14px; }
+.stage { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; }
+.stage.novideo { grid-template-columns: minmax(0, 1fr); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; min-width: 0; }
+.card h2 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .6px; display: flex; justify-content: space-between; }
+.videobox { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; overflow: hidden; }
+.videobox video, .videobox canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.videobox canvas { pointer-events: none; }
+#pitch { width: 100%; aspect-ratio: 115 / 78; display: block; border-radius: 6px; }
+.readout { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.stat { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; }
+.stat .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+.stat .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.chip { display: inline-block; min-width: 2.2em; text-align: center; padding: 1px 8px; border-radius: 6px; font-weight: 700; }
+.chip.H { background: var(--home); } .chip.A { background: var(--away); }
+.chip.D { background: var(--dead); } .chip.X { background: var(--none); color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls .sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+.timeline canvas { width: 100%; display: block; cursor: pointer; border-radius: 4px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 5px; vertical-align: -1px; background: var(--c); }
+.kbd { font-size: 11px; color: var(--muted); }
+.kbd b { color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; font-weight: 500; }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(15,17,21,.85); z-index: 10; font-size: 15px; }
+#loading.hidden { display: none; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+table.mini { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+table.mini td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
+table.mini td:last-child { text-align: right; }
+.note { color: var(--muted); font-size: 12px; }
+@media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<div id="loading">Cargando datos…</div>
+<header>
+  <h1>Visor de posesión</h1>
+  <label class="ctl">Partido <select id="selMatch"></select></label>
+  <label class="ctl">Etiqueta principal <select id="selMain"></select></label>
+  <label class="ctl">Comparar con <select id="selCmp"></select></label>
+  <div class="legend">
+    <span style="--c: var(--home)">H local</span>
+    <span style="--c: var(--away)">A visitante</span>
+    <span style="--c: var(--dead)">D muerto</span>
+    <span style="--c: var(--none)">X sin dato</span>
+  </div>
+</header>
+<main>
+  <div class="stage" id="stage">
+    <div class="card" id="videoCard">
+      <h2><span>Vídeo táctico</span><span><button id="btnOverlay" class="on">Proyección ON</button></span></h2>
+      <div class="videobox"><video id="video" preload="auto" muted playsinline></video><canvas id="overlay"></canvas></div>
+    </div>
+    <div class="card">
+      <h2><span>Recreación 2D (tracking)</span><span id="possBadge"></span></h2>
+      <canvas id="pitch"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="controls">
+      <button id="btnPlay" class="primary">▶ Play</button>
+      <button id="btnBack">−10 s</button><button id="btnFwd">+10 s</button>
+      <button id="btnPrevF">◀ frame</button><button id="btnNextF">frame ▶</button>
+      <span class="sep"></span>
+      <button id="btnPrevChg">⟨ cambio</button><button id="btnNextChg">cambio ⟩</button>
+      <button id="btnNextDiff">siguiente discrepancia</button>
+      <span class="sep"></span>
+      <label class="ctl">Velocidad <select id="selSpeed">
+        <option>0.25</option><option>0.5</option><option selected>1</option><option>2</option><option>4</option><option>8</option>
+      </select></label>
+      <button id="btnTrail" class="on">Estela</button>
+      <button id="btnNearest" class="on">Más cercano</button>
+      <span class="sep"></span>
+      <span class="kbd"><b>espacio</b> play · <b>←/→</b> 10 s · <b>,/.</b> frame · <b>[ ]</b> cambio · <b>d</b> discrepancia</span>
+    </div>
+  </div>
+
+  <div class="readout">
+    <div class="stat"><div class="k">Frame</div><div class="v" id="rFrame">–</div></div>
+    <div class="stat"><div class="k">Reloj</div><div class="v" id="rClock">–</div></div>
+    <div class="stat"><div class="k" id="rMainK">Principal</div><div class="v" id="rMain">–</div></div>
+    <div class="stat"><div class="k" id="rCmpK">Comparación</div><div class="v" id="rCmp">–</div></div>
+    <div class="stat"><div class="k">Balón</div><div class="v" id="rBall">–</div></div>
+    <div class="stat"><div class="k">Jugadores visibles</div><div class="v" id="rPlayers">–</div></div>
+  </div>
+
+  <div class="card timeline">
+    <h2><span>Línea de tiempo · ±45 s</span><span class="note">clic o arrastre para moverte</span></h2>
+    <canvas id="zoom"></canvas>
+  </div>
+  <div class="card timeline">
+    <h2><span>Partido completo</span><span class="note" id="viewNote"></span></h2>
+    <canvas id="overview"></canvas>
+  </div>
+
+  <div class="card">
+    <h2><span>Resumen de la etiqueta principal</span></h2>
+    <div class="stats-grid" id="stats"></div>
+    <p class="note">Las cifras se calculan en tu navegador. La comparación con el GT público solo cubre sus 5 minutos.</p>
+  </div>
+</main>
+
+<script>
+"use strict";
+const DATA = "data/";
+const COLORS = { H: "#d23c4b", A: "#3d84e6", D: "#6b7280", X: "#232733" };
+const LETTER = ["H", "A", "D", "X"];
+const ZOOM_S = 45;
+
+const $ = (id) => document.getElementById(id);
+const state = {
+  meta: null, players: null, ball: null, hom: null, labels: {}, runs: {},
+  frame: 0, playing: false, speed: 1, lastTick: 0, overlay: true, trail: true, nearest: true,
+  main: null, cmp: null, useVideo: false, overviewCache: null, dragging: null,
+};
+
+async function fetchBin(path, Type) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path + ": " + r.status);
+  return new Type(await r.arrayBuffer());
+}
+
+function decode(q) { return q === 65535 ? NaN : q / 65534 * state.meta.span - state.meta.pad; }
+function playerXY(t, s) {
+  const i = (t * state.meta.n_slots + s) * 2;
+  return [decode(state.players[i]), decode(state.players[i + 1])];
+}
+function ballXY(t) { return [decode(state.ball[2 * t]), decode(state.ball[2 * t + 1])]; }
+
+function runsOf(codes) {
+  const out = []; let start = 0;
+  for (let i = 1; i <= codes.length; i++) {
+    if (i === codes.length || codes[i] !== codes[i - 1]) { out.push([start, i, codes[start]]); start = i; }
+  }
+  return out;
+}
+
+async function loadIndex() {
+  const index = await (await fetch(DATA + "index.json")).json();
+  const sel = $("selMatch");
+  sel.innerHTML = index.map((m) => `<option value="${m.folder}">${m.title}</option>`).join("");
+  sel.onchange = () => loadMatch(sel.value);
+  await loadMatch(index[0].folder);
+}
+
+async function loadMatch(folder) {
+  $("loading").classList.remove("hidden");
+  state.ready = false;
+  state.playing = false; updatePlayButton();
+  const base = DATA + folder + "/";
+  const meta = await (await fetch(base + "meta.json")).json();
+  state.meta = meta;
+  const [players, ball] = await Promise.all([fetchBin(base + "players.bin", Uint16Array),
+                                             fetchBin(base + "ball.bin", Uint16Array)]);
+  state.players = players; state.ball = ball;
+  state.labels = {}; state.runs = {};
+  for (const tr of meta.labels) {
+    state.labels[tr.key] = await fetchBin(base + tr.key + ".bin", Uint8Array);
+    state.runs[tr.key] = runsOf(state.labels[tr.key]);
+  }
+  state.hom = meta.has_homography ? await fetchBin(base + "homography.bin", Float32Array) : null;
+
+  // Track pickers: prefer the newest prediction as main and the GT as comparison.
+  const keys = meta.labels.map((t) => t.key);
+  const preds = keys.filter((k) => k.startsWith("pred_"));
+  state.main = preds.length ? preds[preds.length - 1] : keys[0];
+  state.cmp = keys.find((k) => k.startsWith("gt")) || keys.find((k) => k !== state.main) || state.main;
+  const opts = meta.labels.map((t) => `<option value="${t.key}">${t.title}</option>`).join("");
+  $("selMain").innerHTML = opts; $("selCmp").innerHTML = opts;
+  $("selMain").value = state.main; $("selCmp").value = state.cmp;
+
+  state.useVideo = !!meta.video;
+  $("stage").classList.toggle("novideo", !state.useVideo);
+  $("videoCard").style.display = state.useVideo ? "" : "none";
+  const video = $("video");
+  if (state.useVideo) { if (video.getAttribute("src") !== meta.video) video.src = meta.video; }
+  else { video.removeAttribute("src"); video.load(); }
+
+  state.frame = meta.halves.length ? meta.halves[0][0] : 0;
+  state.overviewCache = null;
+  seek(state.frame);
+  state.ready = true;
+  renderStats();
+  draw();
+  $("loading").classList.add("hidden");
+}
+
+// ---------- time ----------
+function seek(frame) {
+  const m = state.meta;
+  state.frame = Math.max(0, Math.min(m.n_frames - 1, Math.round(frame)));
+  if (state.useVideo) {
+    const video = $("video");
+    const target = (state.frame + 0.5) / m.fps;
+    if (Math.abs(video.currentTime - target) > 0.5 / m.fps) video.currentTime = target;
+  }
+  draw();
+}
+
+function syncFromVideo() {
+  if (!state.ready || !state.useVideo) return;
+  const f = Math.min(Math.floor($("video").currentTime * state.meta.fps), state.meta.n_frames - 1);
+  if (f !== state.frame) { state.frame = f; draw(); }
+}
+
+function tick(now) {
+  try {
+    if (state.playing && state.ready) {
+      if (state.useVideo) syncFromVideo();
+      else {
+        const adv = (now - state.lastTick) / 1000 * state.meta.fps * state.speed;
+        if (adv >= 1) { state.frame = Math.min(state.meta.n_frames - 1, state.frame + Math.floor(adv)); state.lastTick = now; draw(); }
+      }
+    } else { state.lastTick = now; }
+  } catch (err) { console.error(err); }
+  finally { requestAnimationFrame(tick); }
+}
+
+function setPlaying(on) {
+  state.playing = on;
+  const video = $("video");
+  if (state.useVideo) {
+    video.playbackRate = state.speed;
+    if (on) video.play().catch(() => { state.playing = false; updatePlayButton(); }); else video.pause();
+  }
+  state.lastTick = performance.now();
+  updatePlayButton();
+}
+function updatePlayButton() { $("btnPlay").textContent = state.playing ? "❚❚ Pausa" : "▶ Play"; }
+
+function clockOf(frame) {
+  const m = state.meta;
+  for (let h = 0; h < m.halves.length; h++) {
+    const [a, b] = m.halves[h];
+    if (frame >= a && frame <= b) {
+      const s = (frame - a) / m.fps;
+      return `${h + 1}T ${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+    }
+  }
+  return "fuera de juego";
+}
+
+function jumpChange(dir) {
+  const runs = state.runs[state.main];
+  if (dir > 0) { const r = runs.find((r) => r[0] > state.frame); if (r) seek(r[0]); }
+  else { for (let i = runs.length - 1; i >= 0; i--) if (runs[i][0] < state.frame) { seek(runs[i][0]); break; } }
+}
+function jumpDiff() {
+  const a = state.labels[state.main], b = state.labels[state.cmp];
+  for (let t = state.frame + 1; t < a.length; t++) {
+    if (b[t] !== 3 && a[t] !== b[t] && (t === 0 || a[t - 1] === b[t - 1])) { seek(t); return; }
+  }
+}
+
+// ---------- drawing ----------
+function fitCanvas(canvas, cssHeight) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = cssHeight || canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    if (cssHeight) canvas.style.height = cssHeight + "px";
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [ctx, w, h];
+}
+
+function drawPitch() {
+  const canvas = $("pitch");
+  const [ctx, W, H] = fitCanvas(canvas);
+  const [L, Wd] = state.meta.pitch;
+  const margin = 5;
+  const sx = W / (L + 2 * margin), sy = H / (Wd + 2 * margin);
+  const P = (x, y) => [(x * L + margin) * sx, (y * Wd + margin) * sy];  // normalised -> px
+  const M = (x, y) => [(x + margin) * sx, (y + margin) * sy];            // metres -> px
+  const code = state.labels[state.main][state.frame];
+
+  ctx.fillStyle = "#14472d"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--pitch");
+  const [x0, y0] = M(0, 0), [x1, y1] = M(L, Wd);
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  // possession frame around the pitch
+  ctx.strokeStyle = COLORS[LETTER[code]]; ctx.lineWidth = 6;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+
+  ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = 1.5;
+  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.beginPath(); ctx.moveTo(...M(L / 2, 0)); ctx.lineTo(...M(L / 2, Wd)); ctx.stroke();
+  ctx.beginPath(); ctx.arc(...M(L / 2, Wd / 2), 9.15 * sx, 0, 2 * Math.PI); ctx.stroke();
+  for (const side of [0, 1]) {
+    for (const [d, w] of [[16.5, 40.3], [5.5, 18.3]]) {
+      const xa = side ? L - d : 0;
+      const [a, b] = M(xa, (Wd - w) / 2), [c, e] = M(xa + d, (Wd + w) / 2);
+      ctx.strokeRect(a, b, c - a, e - b);
+    }
+  }
+
+  const t = state.frame;
+  const team = state.meta.team;
+  const [bx, by] = ballXY(t);
+  let nearest = -1, best = Infinity;
+  if (state.nearest && isFinite(bx)) {
+    for (let s = 0; s < state.meta.n_slots; s++) {
+      const [px, py] = playerXY(t, s);
+      if (!isFinite(px)) continue;
+      const d = ((px - bx) * L) ** 2 + ((py - by) * Wd) ** 2;
+      if (d < best) { best = d; nearest = s; }
+    }
+  }
+  let visible = 0;
+  for (let s = 0; s < state.meta.n_slots; s++) {
+    const [px, py] = playerXY(t, s);
+    if (!isFinite(px)) continue;
+    visible++;
+    const [cx, cy] = P(px, py);
+    ctx.beginPath(); ctx.arc(cx, cy, s === nearest ? 7 : 5.5, 0, 2 * Math.PI);
+    ctx.fillStyle = team[s] === 0 ? COLORS.H : COLORS.A; ctx.fill();
+    ctx.lineWidth = s === nearest ? 2.5 : 1; ctx.strokeStyle = s === nearest ? "#f2c14e" : "rgba(0,0,0,.6)"; ctx.stroke();
+  }
+  if (state.trail) {
+    ctx.beginPath(); let started = false;
+    for (let k = Math.max(0, t - 25); k <= t; k++) {
+      const [x, y] = ballXY(k);
+      if (!isFinite(x)) { started = false; continue; }
+      const [cx, cy] = P(x, y);
+      if (!started) { ctx.moveTo(cx, cy); started = true; } else ctx.lineTo(cx, cy);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.lineWidth = 2; ctx.stroke();
+  }
+  if (isFinite(bx)) {
+    const [cx, cy] = P(bx, by);
+    ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI);
+    ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = "#000"; ctx.stroke();
+  } else {
+    ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.font = "12px sans-serif";
+    ctx.fillText("balón no detectado", 10, H - 12);
+  }
+  $("possBadge").innerHTML = `<span class="chip ${LETTER[code]}">${LETTER[code]}</span>`;
+  return { visible, ball: isFinite(bx) };
+}
+
+function homProject(t, x, y) {
+  const h = state.hom, o = t * 9;
+  const d = h[o + 6] * x + h[o + 7] * y + h[o + 8];
+  return [(h[o] * x + h[o + 1] * y + h[o + 2]) / d, (h[o + 3] * x + h[o + 4] * y + h[o + 5]) / d];
+}
+
+function drawOverlay() {
+  const canvas = $("overlay");
+  const [ctx, W, H] = fitCanvas(canvas);
+  ctx.clearRect(0, 0, W, H);
+  if (!state.overlay || !state.hom) return;
+  const video = $("video");
+  const vw = video.videoWidth || 1920, vh = video.videoHeight || 1080;
+  const scale = Math.min(W / vw, H / vh);
+  const ox = (W - vw * scale) / 2, oy = (H - vh * scale) / 2;
+  const t = state.frame;
+  if (!isFinite(state.hom[t * 9])) return;
+  const team = state.meta.team;
+  for (let s = 0; s < state.meta.n_slots; s++) {
+    const [px, py] = playerXY(t, s);
+    if (!isFinite(px)) continue;
+    const [u, v] = homProject(t, px, py);
+    const cx = ox + u * scale, cy = oy + v * scale;
+    ctx.beginPath(); ctx.ellipse(cx, cy, 7, 3, 0, 0, 2 * Math.PI);
+    ctx.strokeStyle = team[s] === 0 ? COLORS.H : COLORS.A; ctx.lineWidth = 2.5; ctx.stroke();
+  }
+  const [bx, by] = ballXY(t);
+  if (isFinite(bx)) {
+    const [u, v] = homProject(t, bx, by);
+    ctx.beginPath(); ctx.arc(ox + u * scale, oy + v * scale, 5, 0, 2 * Math.PI);
+    ctx.strokeStyle = "#f2c14e"; ctx.lineWidth = 2.5; ctx.stroke();
+  }
+  const code = state.labels[state.main][t];
+  ctx.fillStyle = COLORS[LETTER[code]]; ctx.fillRect(ox, oy, vw * scale, 6);
+}
+
+function trackRows() {
+  const keys = [state.main];
+  if (state.cmp !== state.main) keys.push(state.cmp);
+  for (const tr of state.meta.labels) if (!keys.includes(tr.key)) keys.push(tr.key);
+  return keys;
+}
+
+function drawStrips(ctx, W, rows, t0, t1, rowH, labelW) {
+  const span = t1 - t0;
+  rows.forEach((key, r) => {
+    const y = 4 + r * (rowH + 4);
+    ctx.fillStyle = "#11141a"; ctx.fillRect(labelW, y, W - labelW, rowH);
+    for (const [a, b, c] of state.runs[key]) {
+      if (b <= t0 || a >= t1) continue;
+      const xa = labelW + (Math.max(a, t0) - t0) / span * (W - labelW);
+      const xb = labelW + (Math.min(b, t1) - t0) / span * (W - labelW);
+      if (c === 3) continue;
+      ctx.fillStyle = COLORS[LETTER[c]]; ctx.fillRect(xa, y, Math.max(1, xb - xa), rowH);
+    }
+    const title = state.meta.labels.find((t) => t.key === key).title;
+    ctx.fillStyle = key === state.main ? "#f2c14e" : "#aab1bf"; ctx.font = "11px sans-serif";
+    ctx.fillText(title.length > 30 ? title.slice(0, 29) + "…" : title, 4, y + rowH / 2 + 4);
+  });
+  // ball visibility row
+  const y = 4 + rows.length * (rowH + 4);
+  ctx.fillStyle = "#11141a"; ctx.fillRect(labelW, y, W - labelW, rowH / 2);
+  const step = Math.max(1, Math.floor(span / (W - labelW)));
+  ctx.fillStyle = "rgba(255,255,255,.55)";
+  for (let t = t0; t < t1; t += step) {
+    if (isFinite(decode(state.ball[2 * t]))) {
+      const x = labelW + (t - t0) / span * (W - labelW);
+      ctx.fillRect(x, y, Math.max(1, (W - labelW) / span * step), rowH / 2);
+    }
+  }
+  ctx.fillStyle = "#aab1bf"; ctx.fillText("balón visible", 4, y + rowH / 4 + 4);
+  return y + rowH / 2 + 4;
+}
+
+function drawZoom() {
+  const rows = trackRows();
+  const rowH = 18, labelW = 190;
+  const height = 8 + rows.length * (rowH + 4) + rowH / 2 + 18;
+  const [ctx, W] = fitCanvas($("zoom"), height);
+  ctx.clearRect(0, 0, W, height);
+  const half = ZOOM_S * state.meta.fps;
+  const t0 = Math.max(0, state.frame - half), t1 = Math.min(state.meta.n_frames, t0 + 2 * half);
+  const yEnd = drawStrips(ctx, W, rows, t0, t1, rowH, labelW);
+  const x = labelW + (state.frame - t0) / (t1 - t0) * (W - labelW);
+  ctx.fillStyle = "#f2c14e"; ctx.fillRect(x - 1, 0, 2, yEnd);
+  ctx.fillStyle = "#8b93a3"; ctx.font = "10px sans-serif";
+  for (let s = -ZOOM_S; s <= ZOOM_S; s += 15) {
+    const tx = labelW + (state.frame + s * state.meta.fps - t0) / (t1 - t0) * (W - labelW);
+    if (tx >= labelW && tx <= W) ctx.fillText((s > 0 ? "+" : "") + s + "s", tx - 8, yEnd + 12);
+  }
+  $("zoom")._map = { t0, t1, labelW, W };
+}
+
+function drawOverview() {
+  const rows = trackRows();
+  const rowH = 14, labelW = 190;
+  const height = 8 + rows.length * (rowH + 4) + rowH / 2 + 6;
+  const canvas = $("overview");
+  const [ctx, W] = fitCanvas(canvas, height);
+  const key = W + "|" + rows.join(",");
+  if (!state.overviewCache || state.overviewCache.key !== key) {
+    const off = document.createElement("canvas");
+    off.width = canvas.width; off.height = canvas.height;
+    const octx = off.getContext("2d"); const dpr = window.devicePixelRatio || 1;
+    octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawStrips(octx, W, rows, 0, state.meta.n_frames, rowH, labelW);
+    state.overviewCache = { key, off };
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(state.overviewCache.off, 0, 0);
+  const dpr = window.devicePixelRatio || 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const n = state.meta.n_frames, half = ZOOM_S * state.meta.fps;
+  const xa = labelW + Math.max(0, state.frame - half) / n * (W - labelW);
+  const xb = labelW + Math.min(n, state.frame + half) / n * (W - labelW);
+  ctx.fillStyle = "rgba(242,193,78,.18)"; ctx.fillRect(xa, 0, Math.max(2, xb - xa), height);
+  ctx.fillStyle = "#f2c14e"; ctx.fillRect(labelW + state.frame / n * (W - labelW) - 1, 0, 2, height);
+  canvas._map = { t0: 0, t1: n, labelW, W };
+}
+
+function draw() {
+  if (!state.meta || !state.ready) return;
+  const info = drawPitch();
+  if (state.useVideo) drawOverlay();
+  drawZoom(); drawOverview();
+  const t = state.frame;
+  const main = LETTER[state.labels[state.main][t]], cmp = LETTER[state.labels[state.cmp][t]];
+  $("rFrame").textContent = t.toLocaleString("es");
+  $("rClock").textContent = clockOf(t);
+  $("rMainK").textContent = titleOf(state.main);
+  $("rCmpK").textContent = titleOf(state.cmp);
+  $("rMain").innerHTML = `<span class="chip ${main}">${main}</span>`;
+  $("rCmp").innerHTML = `<span class="chip ${cmp}">${cmp}</span>` +
+    (cmp !== "X" && cmp !== main ? ' <span style="color:#f2c14e;font-size:13px">≠</span>' : "");
+  $("rBall").textContent = info.ball ? "detectado" : "no detectado";
+  $("rPlayers").textContent = info.visible;
+}
+function titleOf(key) { return state.meta.labels.find((t) => t.key === key).title; }
+
+// ---------- stats ----------
+function spells(codes, halves) {
+  const out = [];
+  for (const [a, b] of halves) {
+    let s = a;
+    for (let i = a + 1; i <= b + 1; i++) {
+      if (i === b + 1 || codes[i] !== codes[i - 1]) { if (codes[s] < 2) out.push([s, i, codes[s]]); s = i; }
+    }
+  }
+  return out;
+}
+function renderStats() {
+  const m = state.meta, a = state.labels[state.main], b = state.labels[state.cmp];
+  const sp = spells(a, m.halves);
+  const dur = sp.map(([s, e]) => (e - s) / m.fps);
+  let h = 0, al = 0, d = 0, graded = 0, agree = 0, cmpN = 0;
+  for (const [s, e] of m.halves) for (let t = s; t <= e; t++) {
+    graded++; if (a[t] === 0) h++; if (a[t] < 2) al++; if (a[t] === 2) d++;
+    if (b[t] !== 3) { cmpN++; if (a[t] === b[t]) agree++; }
+  }
+  const short = dur.filter((x) => x < 4).length;
+  const mean = dur.reduce((x, y) => x + y, 0) / Math.max(1, dur.length);
+  const rows = [
+    ["Posesiones", sp.length], ["Duración media", mean.toFixed(1) + " s"],
+    ["Posesiones < 4 s", short + " (" + (100 * short / Math.max(1, sp.length)).toFixed(0) + "%)"],
+    ["% tiempo balón muerto", (100 * d / graded).toFixed(1) + "%"],
+    ["Posesión local (H)", (100 * h / Math.max(1, al)).toFixed(1) + "%"],
+    ["Acuerdo frame a frame con comparación", cmpN ? (100 * agree / cmpN).toFixed(1) + "% de " + cmpN.toLocaleString("es") + " frames" : "–"],
+  ];
+  $("stats").innerHTML = `<table class="mini">${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>`;
+  $("viewNote").textContent = `${m.n_frames.toLocaleString("es")} frames · ${m.fps} fps`;
+}
+
+// ---------- wiring ----------
+function timelineSeek(canvas, ev) {
+  const map = canvas._map; if (!map) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  if (x < map.labelW) return;
+  seek(map.t0 + (x - map.labelW) / (map.W - map.labelW) * (map.t1 - map.t0));
+}
+for (const id of ["zoom", "overview"]) {
+  const c = $(id);
+  c.addEventListener("mousedown", (e) => { state.dragging = c; timelineSeek(c, e); });
+}
+window.addEventListener("mousemove", (e) => { if (state.dragging) timelineSeek(state.dragging, e); });
+window.addEventListener("mouseup", () => { state.dragging = null; });
+
+$("btnPlay").onclick = () => setPlaying(!state.playing);
+$("btnBack").onclick = () => seek(state.frame - 10 * state.meta.fps);
+$("btnFwd").onclick = () => seek(state.frame + 10 * state.meta.fps);
+$("btnPrevF").onclick = () => { setPlaying(false); seek(state.frame - 1); };
+$("btnNextF").onclick = () => { setPlaying(false); seek(state.frame + 1); };
+$("btnPrevChg").onclick = () => jumpChange(-1);
+$("btnNextChg").onclick = () => jumpChange(1);
+$("btnNextDiff").onclick = jumpDiff;
+$("selSpeed").onchange = (e) => { state.speed = +e.target.value; if (state.useVideo) $("video").playbackRate = state.speed; };
+const toggle = (btn, keyName, on, off) => { btn.onclick = () => { state[keyName] = !state[keyName];
+  btn.classList.toggle("on", state[keyName]); if (on) btn.textContent = state[keyName] ? on : off; draw(); }; };
+toggle($("btnOverlay"), "overlay", "Proyección ON", "Proyección OFF");
+toggle($("btnTrail"), "trail");
+toggle($("btnNearest"), "nearest");
+$("selMain").onchange = (e) => { state.main = e.target.value; state.overviewCache = null; renderStats(); draw(); };
+$("selCmp").onchange = (e) => { state.cmp = e.target.value; state.overviewCache = null; renderStats(); draw(); };
+$("video").addEventListener("seeked", () => { if (!state.playing) draw(); });
+$("video").addEventListener("timeupdate", () => { if (state.playing) syncFromVideo(); });
+$("video").addEventListener("ended", () => setPlaying(false));
+window.addEventListener("resize", () => { state.overviewCache = null; draw(); });
+window.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT") return;
+  const fps = state.meta ? state.meta.fps : 25;
+  if (e.key === " ") { e.preventDefault(); setPlaying(!state.playing); }
+  else if (e.key === "ArrowLeft") seek(state.frame - 10 * fps);
+  else if (e.key === "ArrowRight") seek(state.frame + 10 * fps);
+  else if (e.key === ",") { setPlaying(false); seek(state.frame - 1); }
+  else if (e.key === ".") { setPlaying(false); seek(state.frame + 1); }
+  else if (e.key === "[") jumpChange(-1);
+  else if (e.key === "]") jumpChange(1);
+  else if (e.key === "d") jumpDiff();
+});
+
+requestAnimationFrame(tick);
+loadIndex().catch((err) => { $("loading").textContent = "Error: " + err.message; console.error(err); });
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+.venv/
+cache/
+bench/
+__pycache__/
+*.csv
+!calibration/*.csv
+.DS_Store
+viewer/data/
+
+.venv-gpu/
