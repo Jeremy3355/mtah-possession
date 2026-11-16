@@ -26,7 +26,7 @@ bash scripts/download_dfl.sh                      # -> ../external_data/dfl
 .venv/bin/python scripts/calibrate_from_atd.py    # -> calibration/atd_noise.json
 
 # 4. train on degraded DFL, predict BAR-ATH, write and validate the CSV
-.venv/bin/python scripts/make_submission.py --out submissions/<team>.csv
+.venv/bin/python scripts/make_submission.py --out submissions/trackless.csv
 ```
 
 Everything is deterministic: fixed seeds for the degradation and a fixed `random_state` for the
@@ -79,7 +79,9 @@ VIEWER_PORT=8790 .venv/bin/python scripts/serve_viewer.py # http://127.0.0.1:879
 ```
 
 The viewer shows the tactical video with the tracking projected through the homography, a 2D
-recreation, and the label timelines. It runs on 127.0.0.1 only.
+recreation, and the label timelines (for BAR-ATH: the public 5 minutes and the organisers'
+baseline only, never our predictions). It is for looking at the data; nothing is tuned on it. It
+runs on 127.0.0.1 only.
 
 ## Data policy
 

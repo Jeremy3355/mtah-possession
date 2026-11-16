@@ -1,7 +1,7 @@
 # More than a Hack 2027 — Phase 1: Ball Possession
-## Technical report — team `<TEAM_NAME>`
+## Technical report — team `trackless`
 
-Repository: `<PUBLIC_REPO_URL>` · Submission: `<TEAM_NAME>.csv` (199,319 rows, validated)
+Repository: <https://github.com/Jeremy3355/mtah-possession> · Submission: `trackless.csv` (199,319 rows, validated)
 
 ---
 
@@ -33,11 +33,19 @@ leave-one-match-out cross-validation on that benchmark, scored with the organise
 | asset | used? | how |
 |---|---|---|
 | Tactical ATD (players + ball) | **yes** | the only per-frame input of the model |
-| Tactical homography | viewer only | projects the tracking onto the video for visual debugging |
+| Tactical homography | viewer only | projects the tracking onto the video, to look at the data |
 | Smart Tagging | checks only | agreement check (sec. 7); not a model input, because the DFL has no equivalent to train it on |
-| Tactical video | viewer only | inspection; not decoded by the model |
+| Tactical video | viewer only | watched to understand the data and what counts as possession; not decoded by the model, nothing trained, tuned or chosen on it |
 | Broadcast video / ATD / homography | **dropped** | not synchronised with the tactical timeline; mapping it was out of scope for the time available |
 | Public 5-minute ground truth | pipeline check only | scored once per finished version to confirm the format and the label meaning; never used to train, tune or choose |
+
+**On the organisers' clarification of November 2026.** Every trained or tuned part of the
+pipeline (classifier, decoder costs, every model choice) was fitted on the DFL open data only. The
+provided game enters in two ways: as the model's input (the automatic tracking), and through
+aggregate statistics of that automatic tracking (sec. 4) that shape the degradation of the DFL
+data. No ground truth and no video is involved in either. The local viewer was used only to look
+at the data; no parameter, rule or choice came from it, and it no longer shows our predictions
+over the video.
 | ATD speed channel `s` | **dropped** | not a ball speed (median 1.2 vs 5.5 m/s computed from positions); speeds are computed from positions |
 
 ### External training data
@@ -194,7 +202,7 @@ fixed, gave spellF1 0.585 and macroF1 0.852.
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python 3.14
 bash scripts/download_dfl.sh                                          # DFL open data, MD5-checked
 .venv/bin/python scripts/calibrate_from_atd.py                        # ATD noise quantiles
-.venv/bin/python scripts/make_submission.py --out submissions/<TEAM_NAME>.csv
+.venv/bin/python scripts/make_submission.py --out submissions/trackless.csv
 ```
 
 The organisers' repository goes next to ours, with the match bundle in its `data/`. The pipeline is

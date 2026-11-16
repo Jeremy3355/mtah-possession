@@ -11,7 +11,6 @@ Binary layout (little-endian):
   <label>.bin  uint8  (T,)       0 = H, 1 = A, 2 = D, 3 = X
   homography.bin float32 (T, 9)  pitch(0-1) -> pixels, NaN where invalid  (BAR-ATH only)
 """
-import glob
 import json
 import os
 import sys
@@ -71,10 +70,10 @@ def write(folder, match, labels, extra_meta=None, homography=None):
 
 def bar_ath():
     match = Match.load(os.path.join(config.CACHE_DIR, "BAR-ATH.npz"))
+    # Our predictions are not exported for BAR-ATH: the organisers' clarification of November 2026
+    # rules out checking output against the provided video. The viewer shows the provided data,
+    # the public 5-minute labels and the organisers' baseline, to understand what counts as possession.
     labels = {}
-    for path in sorted(glob.glob(os.path.join(config.ROOT, "submissions", "*.csv"))):
-        key = "pred_" + os.path.basename(path)[:-4]
-        labels[key] = ("Predicción " + os.path.basename(path)[:-4], read_labels(path))
     gt = os.path.join(config.evaluation_dir(), "gt", "BAR-ATH_possession_gt_public.csv")
     labels["gt_public"] = ("GT público (5 min)", read_labels(gt))
     labels["baseline"] = ("Baseline smooth50",
